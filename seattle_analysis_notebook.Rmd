@@ -1,0 +1,477 @@
+---
+title: "Seattle 911 Calls Analysis"
+author: "Koushika Kalyani"
+date: "January 11, 2018"
+output:
+  html_document:
+    theme: yeti
+    highlight: tango
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: false
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+
+#Case Scenario
+In our fictitious data set, the city of Seattle only receives **911 calls** for four reasons - a hot latte spills all over your lap (ouch!), Beavers attack unsuspecting passersbys (watch out for those beavers!), Seal attacks (can't be too careful), and Marshawn Lynch sightings (people get very excited and choose to call 911 for some reason).
+
+Your task is to run some analysis on this data set and extract insights. Please answer the questions to the best of your ability - there is some room for interpretation.
+
+
+#Analysis of Seattle 911 Calls
+
+Let us begin by loading the required libraries:
+
+```{r}
+#load libraries
+library(dplyr)
+library(reshape2)
+library(rJava)
+library(xlsx)
+library(tidyr)
+library(gridExtra)
+library(ggplot2)
+library(plotly)
+library(stringi)
+library(stringr)
+library(maps)
+library(ggmap)
+library(cluster)
+library(class)
+library(caTools)
+library(caret)
+library(e1071)
+library(randomForest)
+```
+
+Next, we import the data file into a dataframe called "seattle_data":
+
+```{r}
+#read data
+setwd("C:/Users/gd_su/Documents/KK/Resume/prepared/Capgemini")
+seattle_data <- read.xlsx("rev data for test.xlsx", 1)
+```
+
+Next, let us check the data we imported. 
+
+```{r}
+str(seattle_data)
+```
+
+Our dataset has 1514 observationd of 4 variables: Type - which indicates type of call, Longitude - longitude of the location, Latitude - latitude of the location, Report.Location - location reported.
+
+#911 Calling reason
+
+##What is the most common reason for calling 911?
+
+```{r}
+calltype <- as.data.frame(table(seattle_data$Type))
+colnames(calltype) <- c("Type", "Freq")
+calltype$Perc = round((calltype$Freq / sum(calltype$Freq)) * 100, 2)
+calltype
+```
+
+As we can see, the most common reason for calling 911 is due to Beaver Accidents!!
+
+##Display the results graphically
+
+As a next step, we visualize these reasons using visualization libraries such as ggplot2, plotly.
+
+```{r}
+p1 <- ggplot(calltype, aes(reorder(Type, -Freq), Freq, fill = Type)) + 
+  geom_bar(stat = "identity") + 
+  theme_bw()+
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 15)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  geom_text(aes(label= Freq, y = Freq+10), position = position_dodge(0.9)) +
+  xlab("Type") +
+  ylab("Frequency")+
+  ggtitle("Common Reasons for 911 calls") 
+
+ggplotly(p1)
+
+```
+
+We can also represent the count as percent - we can do so by using **Donut Charts**
+
+```{r}
+p2 <- seattle_data %>%
+  group_by(Type) %>%
+  summarize(count = n()) %>%
+  plot_ly(labels = ~Type, values = ~count) %>%
+  add_pie(hole = 0.6) %>%
+  layout(title = "Common Reasons for 911 Calls in %",  showlegend = T,
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+ggplotly(p2)
+```
+
+#Spatial Representation of 911 Calls - Latitude / Longitude Details
+
+The graphical representation of 911 calls can be done in the following ways-
+
+##Spatial Representation of points in Scatterplot
+
+```{r}
+p3 <- ggplot(seattle_data, aes(x=Longitude, y=Latitude, color = Type),alpha =0.03) +
+  geom_point(size= 0.8) +
+  theme_light()+
+  scale_x_continuous(limits=c(min(seattle_data$Longitude), max(seattle_data$Longitude)))+
+  scale_x_continuous(limits=c(min(seattle_data$Longitude), 
+                              max(seattle_data$Longitude)))+
+  ggtitle("Distribution of Types of 911 Calls")
+
+ggplotly(p3)
+
+```
+
+Each point represents an 911 incident reported and the cause can be identified by the color of the 'dot'. This plot clearly indicates that reason why 911 calls are being made are different in different areas of the city. This may also imply that different areas in the city of Seattle face different problems.
+
+##Representation of the Density of Calls by Call type
+
+In addition to scatterplot, the "level" in density plot gives us an outline of the regions where these types of 911 calls are most frequently made. The darker the shade of a particular color, the more incidents have been reported from that region.
+
+
+```{r}
+p4 <- ggplot(seattle_data, aes(x=Longitude, y=Latitude, color = Type),alpha =0.03) +
+  theme_light()+
+  scale_x_continuous(limits=c(min(seattle_data$Longitude), max(seattle_data$Longitude)))+
+  scale_x_continuous(limits=c(min(seattle_data$Longitude), 
+                              max(seattle_data$Longitude)))+
+  stat_density2d(geom="polygon", aes(fill = Type, alpha=..level..), contour=TRUE) +
+  ggtitle("Density plot - Reasons for 911 calls in Seattle")
+
+ggplotly(p4)
+```
+
+
+##Incidents of 911 Calls plotted on Map
+
+An effective way to view these points would be to overlay them over the map of Seattle. We do this using "Latitude" and "Longitude" variables present in our data and libraries - ggmap and maps. 
+
+```{r}
+map_p <- get_map(location = 'Seattle', zoom = 11, source = 'google')
+p5 <- ggmap(map_p) + 
+  geom_point(data = seattle_data, aes(x = Longitude, y = Latitude, color = Type), size=0.8, alpha = 0.5) +
+  theme_light()+
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Map of Seattle with points indicating reason for 911 Calls")
+p5
+```
+
+From this map, we can identify the regions where each type of 911 call is typically made. We see that different areas of the city call 911 mostly for problems specific to their region.
+
+**Beaver accidents** related calls are mostly from Bellevue region of the city bound between Bridle Trials and New Castle with West Bellevue area to have most reported calls of Beaver Accident. This may be attributed due to the presence of Botanical garden and Kelsey Creek Park in the region.
+
+Next, we find **Seal Attacks** mostly bound around the Elliot Bay area of the city. This is so because sea / ocean body are habitat for seals and they have a higher chance of human interaction because of ferry routes 304 and 305 passing through the bay!
+
+Also, we find **Latte Spills** occuring more on the north of Seattle distributed between Fremont and Greenwood. And lastly, we see **Marshawn Lynch Sightings** occuring mostly in the central and southern regions of Seattle city.
+
+###Hybrid Map for Call Type
+
+A hybrid map can give us the aesthetics of satellite map and deatils from a regular roadmap. This helps us view the data points (or, location of call) with greater clarity- especially the points on water bodies. This can be seen from the map below:
+
+
+```{r}
+map_h <- get_map(location = 'Seattle', zoom = 11, source = "google", maptype = "hybrid")
+```
+
+```{r}
+p7 <- ggmap(map_h) + 
+  geom_point(data = seattle_data, aes(x = Longitude, y = Latitude, color = Type), size=0.8) +
+  theme_light()+
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Reasons for 911 Calls in Seattle - Hybrid Map")
+p7
+```
+
+##Analysing the Presence of Mislabeled Data points
+
+There are chances that some datapoints could be mislabeled. Let us carefully assess these points with a bi-variate scatterplot (with latitude and longitude):
+
+```{r}
+p8 <- ggplot(seattle_data, aes(x=Longitude, y=Latitude, color = Type),alpha =0.03) +
+  geom_point(size= 0.8) +
+  theme_light()+
+  ggtitle("Data Points in Seattle 911 Calls")
+p8
+
+```
+
+We have no reason to believe latte spills to be mislabeled. Sightings of Marshawn Lynch can also be found on the north of Seattle- but these may not necessarily be mislabeled point. 
+
+The data points for Seal Attacks are mostly concentrated in Elliott Bay area but some points can be seen in Belleuve area which could probably be a mislabled point. Similarly, some Beaver Accidents have been located from the sea (Elliott Bay area), which seems unlikely and could be a mislabeled point.
+
+
+#Predicting 911 Call 'Type' based on Spatial data
+
+If we were to use only 'latitude' and 'longitude', could we make an intelligent decision as to why a resident dialed 911? The goal here is to predict the type of call based on the latitude and longitude variables in the data. 
+
+
+##K-means Clustering
+
+As the goal is to identify the call reason based on just latitude and longitude, let us assess how well an unsupervised learning technique such as clustering fares in the scenario. 
+
+I am using Clustering as it allows us to identify which observations are alike, and potentially categorize them therein. K-means clustering is the simplest and the most commonly used clustering method for splitting a dataset into a set of k groups. 
+
+Here we choose number of clusters k=4, since there are 4 types of 911 calls made in Seattle.
+
+```{r}
+seattle_data <- na.omit(seattle_data)
+set.seed(123)
+km_data <- subset(seattle_data, select = c(2,3))
+```
+
+**Elbow Criteria**
+
+Let us first ensure if we have chosen ideal number of clusters with minimal within cluster sum of square error - i.e., the elbow criteria
+
+```{r}
+wssplot <- function(x, nc=15, seed=1234){
+  wss <- (nrow(x)-1)*sum(apply(x,2,var))
+  for (i in 2:nc){
+    set.seed(seed)
+    wss[i] <- sum(kmeans(x, centers=i)$withinss)}
+  plot(1:nc, wss, type="b", xlab="Number of Clusters",
+       ylab="Within groups sum of squares")}
+
+wssplot(km_data, nc=10) 
+```
+
+based on the information above: we have picked right number of clusters (k=4). Next, we proceed with k-means implementation.
+
+```{r}
+#k-means
+k4 <- kmeans(km_data, 4) #no of clusters = 4
+```
+
+**Model Evaluation**
+
+Let us view the k-means result:
+
+```{r}
+attributes(k4)
+```
+
+```{r}
+#total sum of squares
+k4$totss
+```
+```{r}
+#within cluster SSE
+k4$withinss
+```
+
+```{r}
+#between clust SSE
+k4$betweenss
+```
+
+The cluster means are the centroids which help assessing the properties of each cluster. Clustering vector has each point in the dataset assigned to a given cluster based on its latitude and longitude.
+
+The ratio of betwee sum of squares vs Total Sum of Squares (between_SS / total_SS) is 84.8%. It is the % of variance explained by cluster means - it suggests that our clustering has done a pretty good job. 
+
+Let us also see the size of each cluster
+
+```{r}
+k4$size
+```
+
+data points assigned to one of the clusters.
+
+```{r}
+head(k4$cluster, 50)
+```
+
+This shows that Cluster1 has 277 data points, Cluster2 has 260, Cluster3 has 474 and Cluster4 has 503 points.
+
+```{r}
+library(cluster)
+clusplot(km_data, k4$cluster, main='2D representation of the Cluster solution',
+         color=TRUE, shade=TRUE, lines=0)
+```
+
+Next, let us compare the cluster results with the actual call type:
+
+```{r}
+seattle_kmeans <- seattle_data
+seattle_kmeans$cluster <- k4$cluster
+
+p9 <- ggplot(seattle_kmeans, aes(x=Longitude, y=Latitude, color = factor(cluster))) +
+  geom_point(size= 0.8) +
+  theme_light()+
+  ggtitle("Visualize clusters in terms of Latitude and Longitude")
+
+ggplotly(p9)
+
+```
+
+We can say that the k-means algorithm clusters the call type fairly well based on the lat-lon data. Clsuter 1 corresponds to Marshaw Lynch sighting, Cluster 2 shows points where Seal Attacks took place. Cluster 3 shows region of majority latte spills while cluster 4 shows the region of beaver attacks. Lastly, let us view these clusters on the map of Seattle.
+
+```{r}
+p10 <- ggmap(map_h) + 
+  geom_point(data = seattle_kmeans, aes(x = Longitude, y = Latitude, color = factor(cluster)), size=0.8) +
+  theme_light()+
+  xlab("Longitude") + ylab("Latitude") +
+  ggtitle("Visualize Clusters on Seattle Map")
+p10
+```
+
+We categorize each cluster to roughly correspond a Call Type. 
+```{r}
+seattle_kmeans$clusType = ifelse(seattle_kmeans$cluster == 1, 'Marshawn Lynch Sighting', ifelse(seattle_kmeans$cluster == 2, 'Seal Attack', ifelse(seattle_kmeans$cluster == 3, 'Latte Spills', 'Beaver Accident')))
+```
+
+Let us try and compute a confusion Martrix to see the performance:
+
+```{r}
+confusionMatrix(seattle_kmeans$clusType, seattle_kmeans$Type)
+```
+
+If we assign clusters to roughly each type of call made, we see that the accuracy of the prediction is roughly 93% with kappa value of 0.9!
+
+##k-Nearest Neighbour (kNN) Algorithm
+
+As an alternative to k-means clustering, let us look at k-nearest neighbour algorithm. When we visualized the data in Map, an algorithm that came to my mind was k-NN classification. I choose this as we have a small dataset so it can complete running in a fairly short span of time. Also, we are solving a problem which directly focuses on finding similarity between observations- which is where K-NN does better because of its inherent nature to optimize locally.
+
+Let us see how well this technique fares on our dataset.
+
+**Preparing Data**
+We do a 75-25 split: 75% of data to be trained and the model would be tested on 25% of the data.
+
+```{r}
+require(caTools)
+set.seed(123)
+#75% of sample size 
+sample = sample.split(seattle_data$Type, SplitRatio = .75)
+train = subset(seattle_data, sample == TRUE)
+test  = subset(seattle_data, sample == FALSE)
+
+#Prepare training and test set for knn and its labels
+train_knn = train[-c(1,4)]
+test_knn = test[-c(1,4)]
+train_labels = train[1]
+test_labels = test[1]
+
+```
+
+We do not include our target variable 'Type' in training and test sets.
+
+Next step is to train model on data- The knn() function identifies the k-nearest neighbors using Euclidean distance where k is a user-specified number. Here we choose k=4 since our target has 4 levels. We then implement this on test data.
+
+```{r}
+library(class)
+knn_pred <- knn(train = train_knn, test = test_knn, cl = train$Type, k=4)
+```
+
+The knn model uses Eucledian distance as deafult metric. knn() returns a factor value of predicted labels for each of the examples in the test data set which is then assigned to the test data.
+
+The next step is to evaluate model performance -  to check the accuracy of predicted values. 
+
+```{r}
+library(gmodels)
+CrossTable(x = test$Type, y = knn_pred, prop.chisq=FALSE) 
+
+```
+
+Alternatively, we can use the confusionMatrix to evaluate the model performance:
+```{r}
+confusionMatrix(knn_pred, test$Type)
+```
+
+k-nn model gives an accuracy of 95% on the test data- which is a good value in terms of accuracy.
+
+##Does the algorithm implemented utilize Eucledian Distance? 
+
+**Should we be concerned that Latitude and Longitude are not necessarily Eucledian?**
+
+Typically, the algorithm assumes the distance to be Eucledian by default. The model implemented above (kmeans and knn) uses Eucledian distance measure. However, we should know that latitude and longitude are not necessarily eucledian. When dealing with latitude and longitude it is advised to use other distance metrics such as Haversine Distance - which is also called "as the crow files" distance or great circle distance metric for better results. 
+
+**NOTE**: Due to time constraint, I could only implement these algorithms with eucledian formula.
+
+##Random Forest Model
+
+As an alternative to using k-means or k-NN, we approach the problem by choosing a classification technique like Random Forest. I choose Random Forest because it grows multiple trees as opposed to single tree in CART model. To classify a new object based on attributes, each tree gives a classification and we say the tree "votes" for that class. The forest chooses the classification having the most votes. 
+
+Here, we use the same 75:25 split ratio for train and test datasets. 
+
+
+```{r}
+set.seed(123)
+
+#train is the training data and test is test data as created previously in this notebook
+
+RF_model <- randomForest(Type ~ Latitude + Longitude, data = train, ntree= 200, importance = TRUE)
+```
+
+```{r}
+#variable importance
+varImpPlot(RF_model)
+
+```
+
+
+There are 2 types of importance measures shown above- The accuracy one tests to see how worse the model performs without each variable, so a high decrease in accuracy would be expected for very predictive variables. The Gini - essentially measures how pure the nodes are at the end of the tree. Again it tests to see the result if each variable is taken out and a high score means the variable was important.In our case, Longitude was at the top for both measures!
+
+**Model Performance and evaluation:**
+
+```{r}
+pred_rf <- predict(RF_model, test)
+test$pred_Type = pred_rf
+# create - confusionMatrix(pred,actual)
+confusionMatrix(pred_rf, test$Type)
+```
+
+The Random Forest model gives an accuracy of 95%! This shows that the model performs well on test data to correctly identify the Type of 911 call.
+
+**NOTE**  Another approach to consider while building Random Forest was to convert the latitude and longitude to zipcodes and then use one hot encoding on the zipcodes to create a matrix which would be used in classifying the call type.
+
+
+#Correct categorizations from Models Built
+
+Among the models constructed, we used an unsupervised learning technique - kmeans and two supervised learning methods - k-NN and Random Forest. Let us assess the performance of these models.
+
+```{r}
+table(test$Type)
+```
+
+**Random Forest**
+
+```{r}
+confusionMatrix(pred_rf, test$Type)
+```
+
+The Random Forest model had an accuracy of 95.2%. On seeing the confusion matrix, we could assess that all beaver accidents (127points) were correctly classified. 102 Latte spills incidents were correctly identified from a total of 104 observations. 2 points were incorrectly classified as Marshawn sighting. 61 of a total 66 points were correctly identified as Seal Attacks and 70 incidents were correctly identified as marshawm sighting from a total of 81 incidents in test data.
+
+The Kappa statistic (or value) is a metric that compares an Observed Accuracy with an Expected Accuracy (random chance).The kappa value for Random forest is 0.93. Any value of kappa > 0.75 is considered a good value. 
+
+
+**k-Nearest Neighbours**
+
+```{r}
+confusionMatrix(knn_pred, test$Type)
+```
+
+k-NN has an accuracy of 95.7% and a kappa value of 0.94. Despite using euclidean distance metric, our accuracy was comparable to the random forest model accuracy. 
+
+All beaver attacks were correctly classified and Latte Spills were also correctly classified except 1 point. The Seal attacks and Marshawn sightings had higher misclassification rates compared to other two categories. 
+
+**k-means Clustering**
+
+K-means clustering is an unsupervised learning technique and had the ratio of between sum of squares vs Total Sum of Squares (between_SS / total_SS) to be 84.8%. This metric is the % of variance explained by cluster means (similar to R2 in regression models). 
+
+And Finally the comparison of actual vs predicted outcomes for kmeans:
+```{r}
+table(seattle_kmeans$clusType, seattle_kmeans$Type)
+```
+
+
+
+
+
